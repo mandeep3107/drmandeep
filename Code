@@ -1,0 +1,118 @@
+---
+title: "Practicle Machine Learning Assignment"
+author: "DrMandeep"
+date: "12/9/2019"
+output:
+  pdf_document: default
+  html_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+### Background  
+Using devices such as Jawbone Up, Nike FuelBand, and Fitbit it is now possible to collect a large amount of data about personal activity relatively inexpensively. These type of devices are part of the quantified self movement – a group of enthusiasts who take measurements about themselves regularly to improve their health, to find patterns in their behavior, or because they are tech geeks. One thing that people regularly do is quantify how much of a particular activity they do, but they rarely quantify how well they do it. 
+
+In this project, the goal will be to use data from accelerometers on the belt, forearm, arm, and dumbell of 6 participants and predict the manner in which they did the exercise. This is the "classe" variable in the training set. They were asked to perform barbell lifts correctly and incorrectly in 5 different ways. 
+
+More information is available from the website here: http://web.archive.org/web/20161224072740/http:/groupware.les.inf.puc-rio.br/har (see the section on the Weight Lifting Exercise Dataset).
+
+The data for this project come from this source: http://web.archive.org/web/20161224072740/http:/groupware.les.inf.puc-rio.br/har. Thanks for sharing!
+
+### Data processing
+
+Download and read the data, replace empty observations and #DIV/0! errors by NA, to be able to delete them all together afterwards. 
+```{r, preparingdata} 
+library(dplyr)
+library(caret)
+library(corrplot)
+library(rattle)
+trainingUrl <- "https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv"
+testingUrl <- "https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv"
+download.file(url = trainingUrl, destfile = "training.csv")
+download.file(url = testingUrl, destfile = "testing.csv")
+traindata <- read.csv(file ="training.csv", na.strings = c("", "#DIV/0!","NA"))
+testdata <- read.csv(file ="testing.csv", na.strings = c("", "#DIV/0!","NA"))
+dim(traindata)
+dim(testdata)
+str(traindata)
+```
+
+### Cleaning
+
+Removal of missing variables and variables that have no predictive information for outcome classe (column 1 to 7). 
+
+```{r cleaningdata}
+training <- select(traindata, 8:160)
+testing <- select(testdata, 8:160)
+training <- training[, colSums(is.na(training)) ==0]
+testing <- testing[, colSums(is.na(testing)) ==0]
+dim(training)
+dim(testing)
+```
+
+### Exploring
+
+Looking at correlations between the predictors, no further irregularities.
+```{r exploringdata}
+cor_matrix <- cor(training[,-53])                                                                       
+corrplot(cor_matrix, order = "FPC", method = "circle", type = "lower",  tl.col = rgb(0, 0, 0), tl.cex = 0.5)
+```
+
+## Prediction algorithms
+
+### Splitting the data
+
+Let's try to predict the outcome with classification trees and random forests to see which of both methods performs best. We create a validation set next to the training set in order to be able to compute out-of-sample errors.
+
+```{r splittingdata}
+set.seed(5487) 
+inTrain <- createDataPartition(training$classe, p = 0.7, list = FALSE)
+training <- training[inTrain, ]
+validating <- training[-inTrain, ]
+dim(training)
+dim(validating)
+```
+
+### Classification trees
+
+Creating a model with classification trees, including 3-fold cross validation 
+```{r rpart}
+(modfit_rpart <- train(classe ~ ., data=training, method = "rpart", trControl = trainControl(method = "cv", number=3)))
+```
+
+Visualized in a plot.
+```{r plotrpart}
+fancyRpartPlot(modfit_rpart$finalModel)
+```
+
+Predicting on the validation set.
+```{r predictrpart}
+predict_rpart <- predict(modfit_rpart, validating)
+(cm_rpart <- confusionMatrix(validating$classe, predict_rpart))
+```
+
+With an accuracy rate of 0.5 the classification tree model performance is rather low. We notice a big difference in the accuracy results between the 3 sample folds. The best performing option has no classe D as a predicted outcome which seems a bit strange given the normal presence of D within the trainingdata.  
+Let's see if we can do better.
+
+### Random forests
+Modeling with random forests, including 3-fold cross-validation.
+```{r rf}
+modfit_rf <- train(classe ~ ., data=training, method = "rf", trControl = trainControl(method = "cv",number = 3))
+modfit_rf
+```
+
+Predicting on the validation set.
+```{r predictrf}
+predict_rf <- predict(modfit_rf, validating)
+(cm_rf <- confusionMatrix(validating$classe, predict_rf))
+```
+
+The performance of the random forests model is clearly much better. The accuracy level is over 98.8 in the training data and goes up to 100% on the validation set. Out-of sample error = 0, but this might be due to overfitting. Anyhow, the random forests model shows the best results.
+
+### Prediction on the testing set
+We will continu with the random forests model to predict on the testset.
+
+```{r predicttest}
+(predict_final <- predict(modfit_rf, testing))
+```
